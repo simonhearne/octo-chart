@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Octo-Chart</title>
+    <style>
+        * { box-sizing: border-box;}
+        body {
+            font-family: sans-serif;
+        }
+        .container {
+            min-height: 100vh;
+        }
+        .modal {
+            position: absolute;
+            width: 400px;
+            left: 50%;
+            margin: 10vh 0 0 -200px;
+            height: 300px;
+            border-radius: 8px;
+            opacity: 1;
+            pointer-events: all;
+            transition: opacity 500ms;
+            box-shadow: 2px 2px 10px;
+            padding: 16px;
+            overflow: hidden;
+        }
+        .modal.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        .modal.message {
+            z-index: 2;
+        }
+        .modal .btn-primary {
+            width: 100%;
+            padding: 8px;
+            color: white;
+            background: green;
+            bottom: 0;
+            left: 0;
+            border: none;
+            position: absolute;
+        }
+        .modal .modal-title {
+            margin-top: 0;
+            width: 100%;
+            padding-bottom: 10px;
+            text-align: center;
+            border-bottom: 2px solid;
+        }
+        select {
+            max-width: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div id="container" class="container">
+        <div id="modal-products" class="modal hidden">
+            <p class="modal-title">Select Product</p>
+            <label for='products-select'>Product:</label><br/><select onchange='updateTariffs(this.value)' name='products-select' id='products-select'></select><br/>
+            <label for='tariffs-select'>Tariff:</label><br/><select name='tariffs-select' id='tariffs-select'></select>
+            <button id='products-submit' class="btn-primary" onclick="setProductAndTariff()">Save</button>
+        </div>
+        <div id="modal-message" class="modal message hidden">
+            
+        </div>
+    </div>
+    
+    <script>
+        const apiURL = "https://api.octopus.energy/v1/";
+        var products;
+        async function getProducts() {
+            let url = apiURL+"products/";
+            let data = await fetch(url);
+            let json = await data.json();
+            return json;
+        }
+        async function getTariffs(product) {
+            let url = apiURL+"products/"+product;
+            let data = await fetch(url);
+            let json = await data.json();
+            return json;
+        }
+        async function getProduct() {
+            let data = await getProducts();
+            products = data.results;
+
+            let select = document.getElementById('products-select');
+            let selected_code = undefined;
+            products.forEach(product => {
+                let option = document.createElement('option');
+                option.value = product.code;
+                option.innerText = product.code + ' - ' + product.display_name;
+                if (product.display_name === 'Agile Octopus') {
+                    option.selected = 'selected';
+                    selected_code = product.code;
+                }
+                select.appendChild(option)
+            })
+            updateTariffs(selected_code);
+            showModal('modal-products');
+        }
+        function setProduct(code,tariff) {
+            window.localStorage.setItem('product',code);
+            window.localStorage.setItem('tariff',tariff);
+        }
+        function setProductAndTariff() {
+            setProduct(document.getElementById('products-select').value,document.getElementById('tariffs-select').value);
+            hideModal('modal-products');
+            init();
+        }
+        function removeOptions(selectElement) {
+            var i, L = selectElement.options.length - 1;
+            for(i = L; i >= 0; i--) {
+                selectElement.remove(i);
+            }
+        }
+        async function updateTariffs(product) {
+            if (product == undefined) { return false; }
+            let tariffs = await getTariffs(product);
+            tariffs = tariffs['single_register_electricity_tariffs'];
+            let tariff_keys = Object.keys(tariffs);
+            
+            let select = document.getElementById('tariffs-select');
+            removeOptions(select);
+            tariff_keys.forEach(key => {
+                tariff = tariffs[key];
+                if (tariff.hasOwnProperty('direct_debit_monthly')) {
+                    tariff = tariff['direct_debit_monthly'];
+                    let option = document.createElement('option');
+                    option.value = tariff.code;
+                    option.innerText = tariff.code;
+                    select.appendChild(option)   
+                }
+            })
+        }
+        async function getPrices(product,tariff,from=null,to=null) {
+            let url = `${apiURL}products/${product}/electricity-tariffs/${tariff}/standard-unit-rates/`;
+            let data = await fetch(url);
+            let json = await data.json();
+            console.log(json);
+        }
+        function showModal(id) {
+            let elem = document.getElementById(id);
+            elem.classList.remove('hidden');
+        }
+        function hideModal(id) {
+            let elem = document.getElementById(id);
+            elem.classList.add('hidden');
+        }
+        function showMessage(text, status='ok') {
+
+        }
+        async function init() {
+            let product = window.localStorage.getItem('product');
+            let tariff = window.localStorage.getItem('tariff');
+            if (!tariff || !product) {
+                getProduct();
+                return;
+            }
+            getPrices(product,tariff);
+        }
+        init();
+    </script>
+</body>
+</html>
