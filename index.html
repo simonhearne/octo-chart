@@ -50,25 +50,49 @@
             text-align: center;
             border-bottom: 2px solid;
         }
-        select {
-            max-width: 100%;
+        label {
+            display: block;
+        }
+        input, select {
+            margin: 4px 0 8px;
+            width: 100%;
         }
     </style>
+    <script src="scripts/vega.5.min.js"></script>
+    <script src="scripts/vega-embed.6.min.js"></script>
 </head>
 <body>
     <div id="container" class="container">
-        <div id="modal-products" class="modal hidden">
-            <p class="modal-title">Select Product</p>
-            <label for='products-select'>Product:</label><br/><select onchange='updateTariffs(this.value)' name='products-select' id='products-select'></select><br/>
-            <label for='tariffs-select'>Tariff:</label><br/><select name='tariffs-select' id='tariffs-select'></select>
-            <button id='products-submit' class="btn-primary" onclick="setProductAndTariff()">Save</button>
+        <button onclick="clear()">Clear Data</button>
+        <button onclick="getProduct()">Settings</button>
+
+        <div id="chart-rates"></div>
+
+        <pre id="data"></pre>
+
+        <div id="modal-settings" class="modal hidden">
+            <p class="modal-title">Settings</p>
+            <label for='products-select'>Product:</label>
+            <select onchange='updateTariffs(this.value)' name='products-select' id='products-select'></select>
+            <label for='tariffs-select'>Tariff:</label>
+            <select name='tariffs-select' id='tariffs-select'></select>
+            <label for='api-key'>API Key (optional):</label>
+            <input type="text" placeholder="sk_live_" name='api-key' id='api-key'></input>
+            <a target="_blank" href="https://octopus.energy/dashboard/developer/">Get your key from Octopus</a>
+            <button id='products-submit' class="btn-primary" onclick="saveConfig()">Save</button>
         </div>
         <div id="modal-message" class="modal message hidden">
             
         </div>
     </div>
     
-    <script>
+    <script type="text/javascript">
+        var ratesSpec = "data/rates.vg.json";
+        var rates_chart;
+        vegaEmbed('#chart-rates', ratesSpec).then(function(result) {
+            rates_chart = result.view
+        }).catch(console.error);
+        
         const apiURL = "https://api.octopus.energy/v1/";
         var products;
         async function getProducts() {
@@ -100,15 +124,26 @@
                 select.appendChild(option)
             })
             updateTariffs(selected_code);
-            showModal('modal-products');
+            showModal('modal-settings');
         }
-        function setProduct(code,tariff) {
-            window.localStorage.setItem('product',code);
-            window.localStorage.setItem('tariff',tariff);
+        async function getRates(tariff) {
+            let url = apiURL+"products/"+product;
+            let data = await fetch(url);
+            let json = await data.json();
+            return json;
         }
-        function setProductAndTariff() {
-            setProduct(document.getElementById('products-select').value,document.getElementById('tariffs-select').value);
-            hideModal('modal-products');
+        async function getConsumption(apikey,tariff) {
+            let url = apiURL+"products/"+product;
+            let data = await fetch(url);
+            let json = await data.json();
+            return json;
+        }
+        function saveConfig() {
+            window.localStorage.setItem('product',document.getElementById('products-select').value);
+            window.localStorage.setItem('tariff',document.getElementById('tariffs-select').value);
+            window.localStorage.setItem('api-key',document.getElementById('api-key').value);
+
+            hideModal('modal-settings');
             init();
         }
         function removeOptions(selectElement) {
@@ -137,10 +172,25 @@
             })
         }
         async function getPrices(product,tariff,from=null,to=null) {
-            let url = `${apiURL}products/${product}/electricity-tariffs/${tariff}/standard-unit-rates/`;
+            let prices = [];
+            let url = new URL(`${apiURL}products/${product}/electricity-tariffs/${tariff}/standard-unit-rates/`);
+            if (from) {
+                url.searchParams.append('period_from',from)
+            }
+            if (from && to) {
+                url.searchParams.append('period_to',to)
+            }
             let data = await fetch(url);
             let json = await data.json();
-            console.log(json);
+            prices = json.results;
+            let next = json.next;
+            while (next) {
+                data = await fetch(next);
+                json = await data.json();
+                prices = prices.concat(json.results);
+                next = json.next;
+            }
+            return prices;
         }
         function showModal(id) {
             let elem = document.getElementById(id);
@@ -160,9 +210,19 @@
                 getProduct();
                 return;
             }
-            getPrices(product,tariff);
+            let d = new Date();
+            d.setMonth(d.getMonth() - 12);
+            let prices = await getPrices(product,tariff,from=d.toISOString());
+            let data = prices.map(price => {return {'day':new Date(price['valid_to']).toDateString(),'date':Date.parse(price['valid_from']),'to':Date.parse(price['valid_to']),'price':price['value_inc_vat']}})
+            document.getElementById('data').textContent = JSON.stringify(data, undefined, 2);
+            rates_chart.data('table', data).run();
+        }
+        function clear() {
+            localStorage.clear();
+            init();
         }
         init();
     </script>
+
 </body>
 </html>
